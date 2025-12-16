@@ -213,13 +213,12 @@ docker compose restart haproxy
 
 ## D2. Implémenter le cache Redis
 
-Règles :
-- Clé : `product:{id}`
-- TTL : 30 à 120 secondes (à justifier)
-- Cache-aside :
-  1. Lecture Redis
-  2. Miss → DB replica
-  3. Mise en cache
+| Critère               | Impact                                                                             |
+| --------------------- | ---------------------------------------------------------------------------------- |
+| Hit rate              | TTL de 60s permet ~80-90% de hits pour un catalogue produit                        |
+| Fraîcheur des données | Acceptable pour des produits dont le prix/stock change peu fréquemment             |
+| Charge DB replica     | Réduit de 80% le nombre de requêtes SQL sur la replica                             |
+| Risque d'incohérence  | Fenêtre maximale de 60s pour voir des données périmées                             |
 
 ---
 
@@ -276,17 +275,25 @@ docker compose stop db-replica
 ```bash
 docker compose stop db-primary
 ```
+```powershell
+$body = '{"name": "New Product", "price_cents": 1999}'
+Invoke-RestMethod -Uri "http://localhost:8000/products/1" -Method Put -Body $body -ContentType "application/json"
 
+Invoke-RestMethod: {"detail":"Failed to update product: connection to server at \"localhost\" (::1), port 5432 failed: Connection refused"}
+```
 ➡️ Les écritures échouent  
 ➡️ Conclusion : réplication ≠ HA
 
+Dans mon cas le projet API crash en cas de non disponiobilité du primary.
+En production on préfèrerait logger plus explicitement et chosir une stagégie entre rendre le service indisponible ou concerver accès aux ressources en lecture.
 ---
 
 ## F2. Promotion de la replica
 
 ```bash
-docker exec -it db-replica pg_ctl promote -D /bitnami/postgresql/data
-```
+docker exec -it tp-bdd-caching-db-replica-1 pg_ctl promote -D /bitnami/postgresql/data
+waiting for server to promote..... done
+server promoted```
 
 ```sql
 SELECT pg_is_in_recovery();
